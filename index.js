@@ -27,12 +27,8 @@ app.post("/scan", async (req, res) => {
 
         const { imageUrl } = req.body;
 
-        // ===== DOWNLOAD IMAGE =====
-
         const imageResponse = await fetch(imageUrl);
         const imageBuffer = await imageResponse.buffer();
-
-        // ===== BRICKOGNIZE =====
 
         const formData = new FormData();
 
@@ -53,14 +49,12 @@ app.post("/scan", async (req, res) => {
 
         const data = await brickResponse.json();
 
-        // ===== LOAD IMAGE =====
-
         const image = await Jimp.read(imageBuffer);
 
         const width = image.bitmap.width;
         const height = image.bitmap.height;
 
-        // ===== DETECT BACKGROUND =====
+        // ===== FOND : on regarde les coins =====
 
         const corners = [
             Jimp.intToRGBA(image.getPixelColor(5, 5)),
@@ -69,55 +63,22 @@ app.post("/scan", async (req, res) => {
             Jimp.intToRGBA(image.getPixelColor(width - 5, height - 5))
         ];
 
-        const bgR = Math.round(
-            corners.reduce((s, c) => s + c.r, 0) / corners.length
-        );
+        const bgR = Math.round(corners.reduce((s, c) => s + c.r, 0) / corners.length);
+        const bgG = Math.round(corners.reduce((s, c) => s + c.g, 0) / corners.length);
+        const bgB = Math.round(corners.reduce((s, c) => s + c.b, 0) / corners.length);
 
-        const bgG = Math.round(
-            corners.reduce((s, c) => s + c.g, 0) / corners.length
-        );
+        const bgBrightness = (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
+        const backgroundType = bgBrightness > 140 ? "light" : "dark";
 
-        const bgB = Math.round(
-            corners.reduce((s, c) => s + c.b, 0) / corners.length
-        );
+        // ===== ZONE COULEUR : centre de l’image =====
 
-        const bgBrightness =
-            (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
+        const marginX = Math.floor(width * 0.25);
+        const marginY = Math.floor(height * 0.25);
 
-        const backgroundType =
-            bgBrightness > 140 ? "light" : "dark";
-
-        // ===== BOUNDING BOX =====
-
-        let startX = 0;
-        let startY = 0;
-        let endX = width;
-        let endY = height;
-
-        if (data.bounding_box) {
-
-            startX = Math.max(
-                0,
-                Math.floor(data.bounding_box.left)
-            );
-
-            startY = Math.max(
-                0,
-                Math.floor(data.bounding_box.upper)
-            );
-
-            endX = Math.min(
-                width,
-                Math.floor(data.bounding_box.right)
-            );
-
-            endY = Math.min(
-                height,
-                Math.floor(data.bounding_box.lower)
-            );
-        }
-
-        // ===== COLOR ANALYSIS =====
+        const startX = marginX;
+        const startY = marginY;
+        const endX = width - marginX;
+        const endY = height - marginY;
 
         let totalR = 0;
         let totalG = 0;
@@ -148,24 +109,19 @@ app.post("/scan", async (req, res) => {
                     bgB
                 );
 
-                // ===== WHITE PIECE ON DARK BG =====
-
+                // Pièce claire sur fond sombre
                 if (
                     backgroundType === "dark" &&
                     brightness > 160
                 ) {
-
                     totalR += r;
                     totalG += g;
                     totalB += b;
-
                     pixelCount++;
-
                     continue;
                 }
 
-                // ===== REMOVE EXTREME PIXELS =====
-
+                // Ignore reflets / noir extrême
                 if (
                     brightness < 40 ||
                     brightness > 245
@@ -173,8 +129,7 @@ app.post("/scan", async (req, res) => {
                     continue;
                 }
 
-                // ===== REMOVE BACKGROUND =====
-
+                // Ignore pixels proches du fond
                 if (distFromBg < 55) {
                     continue;
                 }
@@ -182,39 +137,28 @@ app.post("/scan", async (req, res) => {
                 totalR += r;
                 totalG += g;
                 totalB += b;
-
                 pixelCount++;
             }
         }
-
-        // ===== SAFETY =====
 
         if (pixelCount === 0) {
             pixelCount = 1;
         }
 
-        // ===== AVERAGE COLOR =====
-
         const avgR = Math.round(totalR / pixelCount);
         const avgG = Math.round(totalG / pixelCount);
         const avgB = Math.round(totalB / pixelCount);
 
-        // ===== RESULT =====
-
         if (data.items && data.items.length > 0) {
 
             data.items[0].detected_color = {
-
                 hex: rgbToHex(avgR, avgG, avgB),
-
                 rgb: {
                     r: avgR,
                     g: avgG,
                     b: avgB
                 },
-
                 background: backgroundType,
-
                 background_rgb: {
                     r: bgR,
                     g: bgG,
@@ -236,7 +180,5 @@ app.post("/scan", async (req, res) => {
 });
 
 app.listen(3000, () => {
-
     console.log("Server running on port 3000");
-
 });
