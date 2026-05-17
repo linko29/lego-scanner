@@ -27,8 +27,12 @@ app.post("/scan", async (req, res) => {
 
         const { imageUrl } = req.body;
 
+        // ===== DOWNLOAD IMAGE =====
+
         const imageResponse = await fetch(imageUrl);
         const imageBuffer = await imageResponse.buffer();
+
+        // ===== BRICKOGNIZE =====
 
         const formData = new FormData();
 
@@ -49,12 +53,14 @@ app.post("/scan", async (req, res) => {
 
         const data = await brickResponse.json();
 
+        // ===== LOAD IMAGE =====
+
         const image = await Jimp.read(imageBuffer);
 
         const width = image.bitmap.width;
         const height = image.bitmap.height;
 
-        // ===== DETECTION FOND =====
+        // ===== DETECT BACKGROUND =====
 
         const corners = [
             Jimp.intToRGBA(image.getPixelColor(5, 5)),
@@ -111,7 +117,7 @@ app.post("/scan", async (req, res) => {
             );
         }
 
-        // ===== ANALYSE COULEUR =====
+        // ===== COLOR ANALYSIS =====
 
         let totalR = 0;
         let totalG = 0;
@@ -142,7 +148,7 @@ app.post("/scan", async (req, res) => {
                     bgB
                 );
 
-                // ===== PIECES CLAIRES SUR FOND SOMBRE =====
+                // ===== WHITE PIECE ON DARK BG =====
 
                 if (
                     backgroundType === "dark" &&
@@ -152,14 +158,24 @@ app.post("/scan", async (req, res) => {
                     totalR += r;
                     totalG += g;
                     totalB += b;
+
                     pixelCount++;
 
                     continue;
                 }
 
-                // ===== SUPPRIME LE FOND =====
+                // ===== REMOVE EXTREME PIXELS =====
 
-                if (distFromBg < 35) {
+                if (
+                    brightness < 40 ||
+                    brightness > 245
+                ) {
+                    continue;
+                }
+
+                // ===== REMOVE BACKGROUND =====
+
+                if (distFromBg < 55) {
                     continue;
                 }
 
@@ -171,15 +187,19 @@ app.post("/scan", async (req, res) => {
             }
         }
 
+        // ===== SAFETY =====
+
         if (pixelCount === 0) {
             pixelCount = 1;
         }
+
+        // ===== AVERAGE COLOR =====
 
         const avgR = Math.round(totalR / pixelCount);
         const avgG = Math.round(totalG / pixelCount);
         const avgB = Math.round(totalB / pixelCount);
 
-        // ===== RESULTAT =====
+        // ===== RESULT =====
 
         if (data.items && data.items.length > 0) {
 
