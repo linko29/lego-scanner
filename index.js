@@ -17,23 +17,14 @@ function rgbToHex(r, g, b) {
 }
 
 app.post("/scan", async (req, res) => {
-
     try {
-
         const { imageUrl } = req.body;
 
         const imageResponse = await fetch(imageUrl);
-
         const imageBuffer = await imageResponse.buffer();
 
-        // Brickognize
         const formData = new FormData();
-
-        formData.append(
-            "query_image",
-            imageBuffer,
-            "piece.jpg"
-        );
+        formData.append("query_image", imageBuffer, "piece.jpg");
 
         const brickResponse = await fetch(
             "https://api.brickognize.com/predict/",
@@ -46,74 +37,70 @@ app.post("/scan", async (req, res) => {
 
         const data = await brickResponse.json();
 
-        // Couleur
-        if (data.items && data.items.length > 0) {
-
+        if (data.items && data.items.length > 0 && data.bounding_box) {
             const item = data.items[0];
-
             const box = data.bounding_box;
 
             const left = Math.max(0, Math.floor(box.left));
             const top = Math.max(0, Math.floor(box.upper));
-            const width = Math.floor(box.right - box.left);
-            const height = Math.floor(box.lower - box.upper);
+            const width = Math.max(1, Math.floor(box.right - box.left));
+            const height = Math.max(1, Math.floor(box.lower - box.upper));
 
             const pixels = await sharp(imageBuffer)
-                .extract({
-                    left,
-                    top,
-                    width,
-                    height
-                })
+                .extract({ left, top, width, height })
                 .raw()
                 .toBuffer();
 
-            let totalR = 0;
-            let totalG = 0;
-            let totalB = 0;
-            let count = 0;
+            const colorMap = {};
 
             for (let i = 0; i < pixels.length; i += 3) {
-
                 const r = pixels[i];
                 const g = pixels[i + 1];
                 const b = pixels[i + 2];
 
                 const brightness = (r + g + b) / 3;
 
-                // ignore fond clair
-                if (brightness < 220) {
+                // Ignore fond très clair
+                if (brightness > 240) continue;
 
-                    totalR += r;
-                    totalG += g;
-                    totalB += b;
+                // Regroupe les couleurs proches
+                const rr = Math.round(r / 20) * 20;
+                const gg = Math.round(g / 20) * 20;
+                const bb = Math.round(b / 20) * 20;
 
-                    count++;
+                const key = `${rr},${gg},${bb}`;
+                colorMap[key] = (colorMap[key] || 0) + 1;
+            }
+
+            let dominantColor = null;
+            let maxCount = 0;
+
+            for (const key in colorMap) {
+                if (colorMap[key] > maxCount) {
+                    maxCount = colorMap[key];
+                    dominantColor = key;
                 }
             }
 
-            const r = Math.round(totalR / count);
-            const g = Math.round(totalG / count);
-            const b = Math.round(totalB / count);
+            if (dominantColor) {
+                const [r, g, b] = dominantColor.split(",").map(Number);
 
-            item.detected_color = {
-                rgb: { r, g, b },
-                hex: rgbToHex(r, g, b)
-            };
+                item.detected_color = {
+                    rgb: { r, g, b },
+                    hex: rgbToHex(r, g, b)
+                };
+            }
         }
 
         res.json(data);
 
     } catch (error) {
-
         console.error(error);
 
         res.status(500).json({
             error: error.message
         });
-
     }
-
 });
 
 app.listen(3000, () => {
