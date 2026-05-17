@@ -39,13 +39,21 @@ app.post("/scan", async (req, res) => {
             const item = data.items[0];
             const box = data.bounding_box;
 
-            const left = Math.max(0, Math.floor(box.left));
-            const top = Math.max(0, Math.floor(box.upper));
-            const width = Math.max(1, Math.floor(box.right - box.left));
-            const height = Math.max(1, Math.floor(box.lower - box.upper));
+            const originalLeft = Math.max(0, Math.floor(box.left));
+            const originalTop = Math.max(0, Math.floor(box.upper));
+            const originalWidth = Math.max(1, Math.floor(box.right - box.left));
+            const originalHeight = Math.max(1, Math.floor(box.lower - box.upper));
 
-            const metadata = await sharp(imageBuffer).metadata();
+            // Garde seulement le centre de la bounding box
+            const marginX = Math.floor(originalWidth * 0.25);
+            const marginY = Math.floor(originalHeight * 0.25);
 
+            const left = originalLeft + marginX;
+            const top = originalTop + marginY;
+            const width = Math.max(1, originalWidth - marginX * 2);
+            const height = Math.max(1, originalHeight - marginY * 2);
+
+            // Détection fond clair / sombre
             const fullPixels = await sharp(imageBuffer)
                 .resize(80, 80)
                 .raw()
@@ -67,6 +75,7 @@ app.post("/scan", async (req, res) => {
             const bgBrightness = brightness(bgR, bgG, bgB);
             const backgroundType = bgBrightness > 150 ? "light" : "dark";
 
+            // Pixels de la zone centrale de la pièce
             const pixels = await sharp(imageBuffer)
                 .extract({ left, top, width, height })
                 .raw()
@@ -81,9 +90,13 @@ app.post("/scan", async (req, res) => {
 
                 const br = brightness(r, g, b);
 
-                if (backgroundType === "light" && br > 220) continue;
-                if (backgroundType === "dark" && br < 45) continue;
+                // Si fond clair, on ignore les pixels trop clairs
+                if (backgroundType === "light" && br > 230) continue;
 
+                // Si fond sombre, on ignore les pixels trop sombres
+                if (backgroundType === "dark" && br < 70) continue;
+
+                // Regroupe les couleurs proches
                 const rr = Math.round(r / 20) * 20;
                 const gg = Math.round(g / 20) * 20;
                 const bb = Math.round(b / 20) * 20;
@@ -117,7 +130,10 @@ app.post("/scan", async (req, res) => {
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
