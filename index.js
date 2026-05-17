@@ -67,7 +67,7 @@ app.post("/scan", async (req, res) => {
 });
 
 const PORT =
-    process.env.PORT || 8080;
+    process.env.PORT || 3000;
 
 app.listen(PORT, () => {
     console.log(
