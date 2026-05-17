@@ -24,13 +24,8 @@ app.post("/scan", async (req, res) => {
             });
         }
 
-        console.log("Downloading image...");
-
         const imageResponse = await fetch(imageUrl);
-
         const imageBuffer = await imageResponse.buffer();
-
-        console.log("Uploading to Brickognize...");
 
         const form = new FormData();
 
@@ -49,12 +44,31 @@ app.post("/scan", async (req, res) => {
             }
         );
 
-        const data =
-            await brickognizeResponse.json();
+        const predictData = await brickognizeResponse.json();
 
-        console.log("SUCCESS");
+        console.log("PREDICT DATA:", predictData);
 
-        res.json(data);
+        const listingId =
+            predictData.listing_id ||
+            predictData.id;
+
+        let internalData = null;
+
+        if (listingId) {
+
+            const internalResponse = await fetch(
+                "https://api.brickognize.com/internal/search/results/" + listingId
+            );
+
+            internalData = await internalResponse.json();
+
+            console.log("INTERNAL DATA:", internalData);
+        }
+
+        res.json({
+            predict: predictData,
+            internal: internalData
+        });
 
     } catch (error) {
 
