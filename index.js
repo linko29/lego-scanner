@@ -46,28 +46,38 @@ app.post("/scan", async (req, res) => {
 
         const predictData = await brickognizeResponse.json();
 
-        console.log("PREDICT DATA:", predictData);
+        const resultId = predictData.id;
 
-        const listingId =
-            predictData.listing_id ||
-            predictData.id;
-
-        let internalData = null;
-
-        if (listingId) {
-
-            const internalResponse = await fetch(
-                "https://api.brickognize.com/internal/search/results/" + listingId
-            );
-
-            internalData = await internalResponse.json();
-
-            console.log("INTERNAL DATA:", internalData);
+        if (!resultId) {
+            return res.json({
+                error: "No result id",
+                raw: predictData
+            });
         }
 
+        const internalResponse = await fetch(
+            `https://api.brickognize.com/internal/search/results/${resultId}`
+        );
+
+        const internalData = await internalResponse.json();
+
+        const piece =
+            internalData.detected_items?.[0]
+                ?.candidate_items?.[0];
+
+        const color =
+            piece?.candidate_colors?.[0];
+
         res.json({
-            predict: predictData,
-            internal: internalData
+            name: piece?.name || "Unknown",
+            id: piece?.external_items?.[0]?.external_id || piece?.id || "Unknown",
+            color: color?.name || "Unknown",
+            color_id: color?.external_colors?.[0]?.external_id || null,
+            confidence: piece?.score ? Math.round(piece.score * 100) : 0,
+            color_confidence: color?.score ? Math.round(color.score * 100) : 0,
+            image_url: predictData.items?.[0]?.img_url || null,
+            raw_predict: predictData,
+            raw_internal: internalData
         });
 
     } catch (error) {
