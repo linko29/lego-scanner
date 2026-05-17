@@ -45,8 +45,8 @@ app.post("/scan", async (req, res) => {
         const predictData = await brickognizeResponse.json();
 
         const resultId =
-            predictData?.listing?.id ||
-            predictData?.listing_id ||
+            predictData?.listing?_id ||
+            predictData?.listing.id ||
             predictData?.id ||
             null;
 
