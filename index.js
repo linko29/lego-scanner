@@ -1,7 +1,7 @@
-import express from "express";
-import cors from "cors";
-import fetch from "node-fetch";
-import FormData from "form-data";
+const express = require("express");
+const cors = require("cors");
+const fetch = require("node-fetch");
+const FormData = require("form-data");
 
 const app = express();
 
@@ -16,6 +16,8 @@ app.post("/scan", async (req, res) => {
 
     try {
 
+        console.log("SCAN ROUTE CALLED");
+
         const { imageUrl } = req.body;
 
         if (!imageUrl) {
@@ -24,31 +26,30 @@ app.post("/scan", async (req, res) => {
             });
         }
 
-        console.log("IMAGE URL :", imageUrl);
+        console.log("IMAGE URL:", imageUrl);
 
-        // TELECHARGER IMAGE
+        // Télécharger image
         const imageResponse = await fetch(imageUrl);
 
-        const arrayBuffer =
-            await imageResponse.arrayBuffer();
-
-        const buffer =
-            Buffer.from(arrayBuffer);
+        const buffer = await imageResponse.buffer();
 
         console.log("IMAGE DOWNLOADED");
 
-        // FORM DATA
+        // FormData
         const form = new FormData();
 
         form.append(
             "query_image",
             buffer,
-            "lego.jpg"
+            {
+                filename: "lego.jpg",
+                contentType: "image/jpeg"
+            }
         );
 
         console.log("FORM READY");
 
-        // API BRICKOGNIZE
+        // Appel Brickognize
         const apiResponse = await fetch(
             "https://api.brickognize.com/predict/",
             {
@@ -58,18 +59,17 @@ app.post("/scan", async (req, res) => {
             }
         );
 
-        console.log("BRICKOGNIZE STATUS :", apiResponse.status);
+        console.log("BRICKOGNIZE STATUS:", apiResponse.status);
 
-        const data =
-            await apiResponse.json();
+        const data = await apiResponse.json();
 
-        console.log("DATA :", data);
+        console.log("SUCCESS");
 
         res.json(data);
 
     } catch (error) {
 
-        console.error("SERVER ERROR :", error);
+        console.error("SERVER ERROR:", error);
 
         res.status(500).json({
             error: error.message
