@@ -6,7 +6,7 @@ const FormData = require("form-data");
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json());
 
 app.get("/", (req, res) => {
     res.send("API running");
@@ -16,41 +16,31 @@ app.post("/scan", async (req, res) => {
 
     try {
 
-        console.log("SCAN ROUTE CALLED");
-
-        const { imageUrl } = req.body;
+        const imageUrl = req.body.imageUrl;
 
         if (!imageUrl) {
             return res.status(400).json({
-                error: "No imageUrl"
+                error: "Missing imageUrl"
             });
         }
 
-        console.log("IMAGE URL:", imageUrl);
+        console.log("Downloading image...");
 
-        // Télécharger image
         const imageResponse = await fetch(imageUrl);
 
-        const buffer = await imageResponse.buffer();
+        const imageBuffer = await imageResponse.buffer();
 
-        console.log("IMAGE DOWNLOADED");
+        console.log("Uploading to Brickognize...");
 
-        // FormData
         const form = new FormData();
 
         form.append(
             "query_image",
-            buffer,
-            {
-                filename: "lego.jpg",
-                contentType: "image/jpeg"
-            }
+            imageBuffer,
+            "lego.jpg"
         );
 
-        console.log("FORM READY");
-
-        // Appel Brickognize
-        const apiResponse = await fetch(
+        const brickognizeResponse = await fetch(
             "https://api.brickognize.com/predict/",
             {
                 method: "POST",
@@ -59,9 +49,8 @@ app.post("/scan", async (req, res) => {
             }
         );
 
-        console.log("BRICKOGNIZE STATUS:", apiResponse.status);
-
-        const data = await apiResponse.json();
+        const data =
+            await brickognizeResponse.json();
 
         console.log("SUCCESS");
 
@@ -69,16 +58,19 @@ app.post("/scan", async (req, res) => {
 
     } catch (error) {
 
-        console.error("SERVER ERROR:", error);
+        console.error("SERVER ERROR :", error);
 
         res.status(500).json({
-            error: error.message
+            error: error.toString()
         });
     }
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT =
+    process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-    console.log(`API running on port ${PORT}`);
+    console.log(
+        `API running on port ${PORT}`
+    );
 });
