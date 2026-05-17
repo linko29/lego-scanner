@@ -8,12 +8,13 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 function rgbToHex(r, g, b) {
-    return (
-        "#" +
-        [r, g, b]
-            .map(x => x.toString(16).padStart(2, "0"))
-            .join("")
-    );
+    return "#" + [r, g, b]
+        .map(x => x.toString(16).padStart(2, "0"))
+        .join("");
+}
+
+function brightness(r, g, b) {
+    return (r + g + b) / 3;
 }
 
 app.post("/scan", async (req, res) => {
@@ -26,14 +27,11 @@ app.post("/scan", async (req, res) => {
         const formData = new FormData();
         formData.append("query_image", imageBuffer, "piece.jpg");
 
-        const brickResponse = await fetch(
-            "https://api.brickognize.com/predict/",
-            {
-                method: "POST",
-                body: formData,
-                headers: formData.getHeaders()
-            }
-        );
+        const brickResponse = await fetch("https://api.brickognize.com/predict/", {
+            method: "POST",
+            body: formData,
+            headers: formData.getHeaders()
+        });
 
         const data = await brickResponse.json();
 
@@ -45,6 +43,29 @@ app.post("/scan", async (req, res) => {
             const top = Math.max(0, Math.floor(box.upper));
             const width = Math.max(1, Math.floor(box.right - box.left));
             const height = Math.max(1, Math.floor(box.lower - box.upper));
+
+            const metadata = await sharp(imageBuffer).metadata();
+
+            const fullPixels = await sharp(imageBuffer)
+                .resize(80, 80)
+                .raw()
+                .toBuffer();
+
+            let bgR = 0, bgG = 0, bgB = 0, bgCount = 0;
+
+            for (let i = 0; i < fullPixels.length; i += 3) {
+                bgR += fullPixels[i];
+                bgG += fullPixels[i + 1];
+                bgB += fullPixels[i + 2];
+                bgCount++;
+            }
+
+            bgR = Math.round(bgR / bgCount);
+            bgG = Math.round(bgG / bgCount);
+            bgB = Math.round(bgB / bgCount);
+
+            const bgBrightness = brightness(bgR, bgG, bgB);
+            const backgroundType = bgBrightness > 150 ? "light" : "dark";
 
             const pixels = await sharp(imageBuffer)
                 .extract({ left, top, width, height })
@@ -58,12 +79,11 @@ app.post("/scan", async (req, res) => {
                 const g = pixels[i + 1];
                 const b = pixels[i + 2];
 
-                const brightness = (r + g + b) / 3;
+                const br = brightness(r, g, b);
 
-                // Ignore fond très clair
-                if (brightness > 240) continue;
+                if (backgroundType === "light" && br > 220) continue;
+                if (backgroundType === "dark" && br < 45) continue;
 
-                // Regroupe les couleurs proches
                 const rr = Math.round(r / 20) * 20;
                 const gg = Math.round(g / 20) * 20;
                 const bb = Math.round(b / 20) * 20;
@@ -87,7 +107,8 @@ app.post("/scan", async (req, res) => {
 
                 item.detected_color = {
                     rgb: { r, g, b },
-                    hex: rgbToHex(r, g, b)
+                    hex: rgbToHex(r, g, b),
+                    background: backgroundType
                 };
             }
         }
@@ -96,10 +117,7 @@ app.post("/scan", async (req, res) => {
 
     } catch (error) {
         console.error(error);
-
-        res.status(500).json({
-            error: error.message
-        });
+        res.status(500).json({ error: error.message });
     }
 });
 
