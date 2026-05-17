@@ -27,8 +27,12 @@ app.post("/scan", async (req, res) => {
 
         const { imageUrl } = req.body;
 
+        // ===== DOWNLOAD IMAGE =====
+
         const imageResponse = await fetch(imageUrl);
         const imageBuffer = await imageResponse.buffer();
+
+        // ===== BRICKOGNIZE =====
 
         const formData = new FormData();
 
@@ -49,12 +53,14 @@ app.post("/scan", async (req, res) => {
 
         const data = await brickResponse.json();
 
+        // ===== LOAD IMAGE =====
+
         const image = await Jimp.read(imageBuffer);
 
         const width = image.bitmap.width;
         const height = image.bitmap.height;
 
-        // ===== FOND : on regarde les coins =====
+        // ===== DETECT BACKGROUND =====
 
         const corners = [
             Jimp.intToRGBA(image.getPixelColor(5, 5)),
@@ -63,22 +69,36 @@ app.post("/scan", async (req, res) => {
             Jimp.intToRGBA(image.getPixelColor(width - 5, height - 5))
         ];
 
-        const bgR = Math.round(corners.reduce((s, c) => s + c.r, 0) / corners.length);
-        const bgG = Math.round(corners.reduce((s, c) => s + c.g, 0) / corners.length);
-        const bgB = Math.round(corners.reduce((s, c) => s + c.b, 0) / corners.length);
+        const bgR = Math.round(
+            corners.reduce((s, c) => s + c.r, 0) / corners.length
+        );
 
-        const bgBrightness = (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
-        const backgroundType = bgBrightness > 140 ? "light" : "dark";
+        const bgG = Math.round(
+            corners.reduce((s, c) => s + c.g, 0) / corners.length
+        );
 
-        // ===== ZONE COULEUR : centre de l’image =====
+        const bgB = Math.round(
+            corners.reduce((s, c) => s + c.b, 0) / corners.length
+        );
 
-        const marginX = Math.floor(width * 0.25);
-        const marginY = Math.floor(height * 0.25);
+        const bgBrightness =
+            (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
+
+        const backgroundType =
+            bgBrightness > 140 ? "light" : "dark";
+
+        // ===== CENTER ZONE =====
+
+        const marginX = Math.floor(width * 0.35);
+        const marginY = Math.floor(height * 0.35);
 
         const startX = marginX;
         const startY = marginY;
+
         const endX = width - marginX;
         const endY = height - marginY;
+
+        // ===== COLOR ANALYSIS =====
 
         let totalR = 0;
         let totalG = 0;
@@ -109,19 +129,24 @@ app.post("/scan", async (req, res) => {
                     bgB
                 );
 
-                // Pièce claire sur fond sombre
+                // ===== WHITE PIECE ON DARK BG =====
+
                 if (
                     backgroundType === "dark" &&
                     brightness > 160
                 ) {
+
                     totalR += r;
                     totalG += g;
                     totalB += b;
+
                     pixelCount++;
+
                     continue;
                 }
 
-                // Ignore reflets / noir extrême
+                // ===== REMOVE EXTREME PIXELS =====
+
                 if (
                     brightness < 40 ||
                     brightness > 245
@@ -129,7 +154,8 @@ app.post("/scan", async (req, res) => {
                     continue;
                 }
 
-                // Ignore pixels proches du fond
+                // ===== REMOVE BACKGROUND =====
+
                 if (distFromBg < 55) {
                     continue;
                 }
@@ -137,28 +163,39 @@ app.post("/scan", async (req, res) => {
                 totalR += r;
                 totalG += g;
                 totalB += b;
+
                 pixelCount++;
             }
         }
+
+        // ===== SAFETY =====
 
         if (pixelCount === 0) {
             pixelCount = 1;
         }
 
+        // ===== AVERAGE COLOR =====
+
         const avgR = Math.round(totalR / pixelCount);
         const avgG = Math.round(totalG / pixelCount);
         const avgB = Math.round(totalB / pixelCount);
 
+        // ===== RESULT =====
+
         if (data.items && data.items.length > 0) {
 
             data.items[0].detected_color = {
+
                 hex: rgbToHex(avgR, avgG, avgB),
+
                 rgb: {
                     r: avgR,
                     g: avgG,
                     b: avgB
                 },
+
                 background: backgroundType,
+
                 background_rgb: {
                     r: bgR,
                     g: bgG,
@@ -180,5 +217,7 @@ app.post("/scan", async (req, res) => {
 });
 
 app.listen(3000, () => {
+
     console.log("Server running on port 3000");
+
 });
