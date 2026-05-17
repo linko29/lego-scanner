@@ -22,11 +22,11 @@ app.post("/scan", async (req, res) => {
 
         const { imageUrl } = req.body;
 
-        // Télécharger image
         const imageResponse = await fetch(imageUrl);
+
         const imageBuffer = await imageResponse.buffer();
 
-        // Envoyer à Brickognize
+        // Brickognize
         const formData = new FormData();
 
         formData.append(
@@ -46,33 +46,55 @@ app.post("/scan", async (req, res) => {
 
         const data = await brickResponse.json();
 
-        // Si pièce trouvée
+        // Couleur
         if (data.items && data.items.length > 0) {
 
             const item = data.items[0];
 
             const box = data.bounding_box;
 
-            // Découpage zone pièce
             const left = Math.max(0, Math.floor(box.left));
             const top = Math.max(0, Math.floor(box.upper));
             const width = Math.floor(box.right - box.left);
             const height = Math.floor(box.lower - box.upper);
 
-            const cropped = await sharp(imageBuffer)
+            const pixels = await sharp(imageBuffer)
                 .extract({
                     left,
                     top,
                     width,
                     height
                 })
-                .resize(1, 1)
                 .raw()
                 .toBuffer();
 
-            const r = cropped[0];
-            const g = cropped[1];
-            const b = cropped[2];
+            let totalR = 0;
+            let totalG = 0;
+            let totalB = 0;
+            let count = 0;
+
+            for (let i = 0; i < pixels.length; i += 3) {
+
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
+
+                const brightness = (r + g + b) / 3;
+
+                // ignore fond clair
+                if (brightness < 220) {
+
+                    totalR += r;
+                    totalG += g;
+                    totalB += b;
+
+                    count++;
+                }
+            }
+
+            const r = Math.round(totalR / count);
+            const g = Math.round(totalG / count);
+            const b = Math.round(totalB / count);
 
             item.detected_color = {
                 rgb: { r, g, b },
