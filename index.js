@@ -24,18 +24,31 @@ app.post("/scan", async (req, res) => {
             });
         }
 
-        // télécharger image
-        const imageResponse = await fetch(imageUrl);
-        const buffer = await imageResponse.buffer();
+        console.log("IMAGE URL :", imageUrl);
 
-        // envoyer à Bricognize
+        // TELECHARGER IMAGE
+        const imageResponse = await fetch(imageUrl);
+
+        const arrayBuffer =
+            await imageResponse.arrayBuffer();
+
+        const buffer =
+            Buffer.from(arrayBuffer);
+
+        console.log("IMAGE DOWNLOADED");
+
+        // FORM DATA
         const form = new FormData();
 
-        form.append("query_image", buffer, {
-            filename: "lego.jpg",
-            contentType: "image/jpeg"
-        });
+        form.append(
+            "query_image",
+            buffer,
+            "lego.jpg"
+        );
 
+        console.log("FORM READY");
+
+        // API BRICKOGNIZE
         const apiResponse = await fetch(
             "https://api.brickognize.com/predict/",
             {
@@ -45,15 +58,18 @@ app.post("/scan", async (req, res) => {
             }
         );
 
-        const data = await apiResponse.json();
+        console.log("BRICKOGNIZE STATUS :", apiResponse.status);
 
-        console.log(data);
+        const data =
+            await apiResponse.json();
+
+        console.log("DATA :", data);
 
         res.json(data);
 
     } catch (error) {
 
-        console.error(error);
+        console.error("SERVER ERROR :", error);
 
         res.status(500).json({
             error: error.message
@@ -64,5 +80,5 @@ app.post("/scan", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-    console.log("API running on port", PORT);
+    console.log(`API running on port ${PORT}`);
 });
