@@ -1,158 +1,225 @@
 import express from "express";
 import fetch from "node-fetch";
 import FormData from "form-data";
-import sharp from "sharp";
+import Jimp from "jimp";
 
 const app = express();
 
 app.use(express.json({ limit: "10mb" }));
 
 function rgbToHex(r, g, b) {
-    return "#" + [r, g, b]
-        .map(x => x.toString(16).padStart(2, "0"))
-        .join("");
-}
-
-function brightness(r, g, b) {
-    return (r + g + b) / 3;
+    return (
+        "#" +
+        [r, g, b]
+            .map(x => x.toString(16).padStart(2, "0"))
+            .join("")
+    );
 }
 
 function colorDistance(r1, g1, b1, r2, g2, b2) {
     return Math.sqrt(
-        Math.pow(r1 - r2, 2) +
-        Math.pow(g1 - g2, 2) +
-        Math.pow(b1 - b2, 2)
+        (r1 - r2) ** 2 +
+        (g1 - g2) ** 2 +
+        (b1 - b2) ** 2
     );
 }
 
 app.post("/scan", async (req, res) => {
+
     try {
+
         const { imageUrl } = req.body;
 
+        // -----------------------------
+        // Télécharger image
+        // -----------------------------
+
         const imageResponse = await fetch(imageUrl);
+
         const imageBuffer = await imageResponse.buffer();
 
-        const formData = new FormData();
-        formData.append("query_image", imageBuffer, "piece.jpg");
+        // -----------------------------
+        // Envoyer à Brickognize
+        // -----------------------------
 
-        const brickResponse = await fetch("https://api.brickognize.com/predict/", {
-            method: "POST",
-            body: formData,
-            headers: formData.getHeaders()
-        });
+        const formData = new FormData();
+
+        formData.append(
+            "query_image",
+            imageBuffer,
+            "piece.jpg"
+        );
+
+        const brickResponse = await fetch(
+            "https://api.brickognize.com/predict/",
+            {
+                method: "POST",
+                body: formData,
+                headers: formData.getHeaders()
+            }
+        );
 
         const data = await brickResponse.json();
 
-        if (data.items && data.items.length > 0 && data.bounding_box) {
-            const item = data.items[0];
-            const box = data.bounding_box;
+        // -----------------------------
+        // Analyse couleur intelligente
+        // -----------------------------
 
-            const originalLeft = Math.max(0, Math.floor(box.left));
-            const originalTop = Math.max(0, Math.floor(box.upper));
-            const originalWidth = Math.max(1, Math.floor(box.right - box.left));
-            const originalHeight = Math.max(1, Math.floor(box.lower - box.upper));
+        const image = await Jimp.read(imageBuffer);
 
-            const marginX = Math.floor(originalWidth * 0.30);
-            const marginY = Math.floor(originalHeight * 0.30);
+        const width = image.bitmap.width;
+        const height = image.bitmap.height;
 
-            const left = originalLeft + marginX;
-            const top = originalTop + marginY;
-            const width = Math.max(1, originalWidth - marginX * 2);
-            const height = Math.max(1, originalHeight - marginY * 2);
+        // ---------- Fond ----------
+        // Moyenne des coins
 
-            // Estime le fond depuis les coins de l'image
-            const fullPixels = await sharp(imageBuffer)
-                .resize(80, 80)
-                .raw()
-                .toBuffer();
+        const corners = [
+            Jimp.intToRGBA(image.getPixelColor(5, 5)),
+            Jimp.intToRGBA(image.getPixelColor(width - 5, 5)),
+            Jimp.intToRGBA(image.getPixelColor(5, height - 5)),
+            Jimp.intToRGBA(image.getPixelColor(width - 5, height - 5))
+        ];
 
-            let bgR = 0, bgG = 0, bgB = 0, bgCount = 0;
+        const bgR = Math.round(
+            corners.reduce((s, c) => s + c.r, 0) / corners.length
+        );
 
-            for (let y = 0; y < 80; y++) {
-                for (let x = 0; x < 80; x++) {
-                    const isCorner =
-                        (x < 15 && y < 15) ||
-                        (x > 64 && y < 15) ||
-                        (x < 15 && y > 64) ||
-                        (x > 64 && y > 64);
+        const bgG = Math.round(
+            corners.reduce((s, c) => s + c.g, 0) / corners.length
+        );
 
-                    if (!isCorner) continue;
+        const bgB = Math.round(
+            corners.reduce((s, c) => s + c.b, 0) / corners.length
+        );
 
-                    const i = (y * 80 + x) * 3;
-                    bgR += fullPixels[i];
-                    bgG += fullPixels[i + 1];
-                    bgB += fullPixels[i + 2];
-                    bgCount++;
+        const bgBrightness =
+            (bgR * 299 + bgG * 587 + bgB * 114) / 1000;
+
+        // ---------- Bounding Box ----------
+        let startX = 0;
+        let startY = 0;
+        let endX = width;
+        let endY = height;
+
+        if (data.bounding_box) {
+
+            startX = Math.max(
+                0,
+                Math.floor(data.bounding_box.left)
+            );
+
+            startY = Math.max(
+                0,
+                Math.floor(data.bounding_box.upper)
+            );
+
+            endX = Math.min(
+                width,
+                Math.floor(data.bounding_box.right)
+            );
+
+            endY = Math.min(
+                height,
+                Math.floor(data.bounding_box.lower)
+            );
+        }
+
+        // ---------- Analyse couleur ----------
+
+        let totalR = 0;
+        let totalG = 0;
+        let totalB = 0;
+        let pixelCount = 0;
+
+        for (let y = startY; y < endY; y++) {
+
+            for (let x = startX; x < endX; x++) {
+
+                const pixel = Jimp.intToRGBA(
+                    image.getPixelColor(x, y)
+                );
+
+                const r = pixel.r;
+                const g = pixel.g;
+                const b = pixel.b;
+
+                // luminosité pixel
+                const brightness =
+                    (r * 299 + g * 587 + b * 114) / 1000;
+
+                // différence avec fond
+                const distFromBg = colorDistance(
+                    r, g, b,
+                    bgR, bgG, bgB
+                );
+
+                const brightnessDiff = Math.abs(
+                    brightness - bgBrightness
+                );
+
+                // Ignore seulement si :
+                // proche du fond ET luminosité similaire
+                if (
+                    distFromBg < 45 &&
+                    brightnessDiff < 25
+                ) {
+                    continue;
                 }
-            }
 
-            bgR = Math.round(bgR / bgCount);
-            bgG = Math.round(bgG / bgCount);
-            bgB = Math.round(bgB / bgCount);
+                totalR += r;
+                totalG += g;
+                totalB += b;
 
-            const bgBrightness = brightness(bgR, bgG, bgB);
-            const backgroundType = bgBrightness > 150 ? "light" : "dark";
-
-            const pixels = await sharp(imageBuffer)
-                .extract({ left, top, width, height })
-                .raw()
-                .toBuffer();
-
-            const colorMap = {};
-
-            for (let i = 0; i < pixels.length; i += 3) {
-                const r = pixels[i];
-                const g = pixels[i + 1];
-                const b = pixels[i + 2];
-
-                const br = brightness(r, g, b);
-                const distFromBg = colorDistance(r, g, b, bgR, bgG, bgB);
-
-                // Ignore pixels trop proches du fond
-                if (distFromBg < 35) continue;
-
-                // Sécurité fond clair / sombre
-                if (backgroundType === "light" && br > 240) continue;
-                if (backgroundType === "dark" && br < 40) continue;
-
-                const rr = Math.round(r / 20) * 20;
-                const gg = Math.round(g / 20) * 20;
-                const bb = Math.round(b / 20) * 20;
-
-                const key = `${rr},${gg},${bb}`;
-                colorMap[key] = (colorMap[key] || 0) + 1;
-            }
-
-            let dominantColor = null;
-            let maxCount = 0;
-
-            for (const key in colorMap) {
-                if (colorMap[key] > maxCount) {
-                    maxCount = colorMap[key];
-                    dominantColor = key;
-                }
-            }
-
-            if (dominantColor) {
-                const [r, g, b] = dominantColor.split(",").map(Number);
-
-                item.detected_color = {
-                    rgb: { r, g, b },
-                    hex: rgbToHex(r, g, b),
-                    background: backgroundType,
-                    background_rgb: { r: bgR, g: bgG, b: bgB }
-                };
+                pixelCount++;
             }
         }
+
+        // Sécurité
+
+        if (pixelCount === 0) {
+            pixelCount = 1;
+        }
+
+        const avgR = Math.round(totalR / pixelCount);
+        const avgG = Math.round(totalG / pixelCount);
+        const avgB = Math.round(totalB / pixelCount);
+
+        const detectedColor = {
+            hex: rgbToHex(avgR, avgG, avgB),
+            rgb: {
+                r: avgR,
+                g: avgG,
+                b: avgB
+            }
+        };
+
+        // -----------------------------
+        // Ajouter couleur résultat
+        // -----------------------------
+
+        if (data.items && data.items.length > 0) {
+
+            data.items[0].detected_color = detectedColor;
+        }
+
+        console.log(data);
 
         res.json(data);
 
     } catch (error) {
+
         console.error(error);
-        res.status(500).json({ error: error.message });
+
+        res.status(500).json({
+            error: error.message
+        });
+
     }
+
 });
 
 app.listen(3000, () => {
+
     console.log("Server running on port 3000");
+
 });
